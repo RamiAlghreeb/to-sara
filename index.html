@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Blue Rose</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;touch-action:none}
+canvas{display:block;width:100%!important;height:100%!important}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const canvas=document.getElementById('c');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.setSize(window.innerWidth,window.innerHeight);
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.35;
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x03050e);
+scene.fog=new THREE.FogExp2(0x03050e,0.07);
+
+const camera=new THREE.PerspectiveCamera(42,window.innerWidth/window.innerHeight,0.1,100);
+camera.position.set(0,0.5,5.8);
+camera.lookAt(0,0.3,0);
+
+// ────────────────────────────────── LIGHTS
+scene.add(new THREE.AmbientLight(0x08101e,3.0));
+
+const key=new THREE.DirectionalLight(0xc0d0ff,3.0);
+key.position.set(2,5,3);key.castShadow=true;
+key.shadow.mapSize.set(2048,2048);
+key.shadow.camera.left=-5;key.shadow.camera.right=5;
+key.shadow.camera.top=5;key.shadow.camera.bottom=-5;
+scene.add(key);
+
+const fill=new THREE.DirectionalLight(0x1a2850,1.4);
+fill.position.set(-3,1,2);scene.add(fill);
+
+const rim=new THREE.DirectionalLight(0x3050b0,0.9);
+rim.position.set(0,-2,-4);scene.add(rim);
+
+const topLight2=new THREE.DirectionalLight(0x7080ff,0.5);topLight2.position.set(0,6,0);scene.add(topLight2);
+
+const glowLight=new THREE.PointLight(0x3355ff,0,4);
+glowLight.position.set(0,0.2,0);scene.add(glowLight);
+
+const roseLight=new THREE.PointLight(0x2244cc,0,6);
+roseLight.position.set(0,2.8,1);scene.add(roseLight);
+
+const underLight=new THREE.PointLight(0x0f20a0,0,4);
+underLight.position.set(0,-0.5,1);scene.add(underLight);
+
+const sideLight=new THREE.PointLight(0x6688ff,0,5);
+sideLight.position.set(-2,1.5,0.5);scene.add(sideLight);
+
+// ────────────────────────────────── BACKGROUND DUST
+const dustBuf=new Float32Array(300*3);
+for(let i=0;i<300;i++){dustBuf[i*3]=(Math.random()-0.5)*18;dustBuf[i*3+1]=(Math.random()-0.5)*12;dustBuf[i*3+2]=(Math.random()-0.5)*12-2;}
+const dustGeo=new THREE.BufferGeometry();
+dustGeo.setAttribute('position',new THREE.BufferAttribute(dustBuf,3));
+scene.add(new THREE.Points(dustGeo,new THREE.PointsMaterial({color:0x304070,size:0.03,transparent:true,opacity:0.18,blending:THREE.AdditiveBlending,depthWrite:false})));
+
+// ────────────────────────────────── ESCAPE PARTICLES
+const PCNT=180;
+const pBuf=new Float32Array(PCNT*3);
+const pVel=[];const pLife=[];
+for(let i=0;i<PCNT;i++){
+  pBuf[i*3]=(Math.random()-0.5)*0.2;pBuf[i*3+1]=0;pBuf[i*3+2]=(Math.random()-0.5)*0.1;
+  pVel.push({x:(Math.random()-0.5)*0.02,y:Math.random()*0.032+0.008,z:(Math.random()-0.5)*0.015});
+  pLife.push(Math.random());
+}
+const pGeo=new THREE.BufferGeometry();
+pGeo.setAttribute('position',new THREE.BufferAttribute(pBuf,3));
+const pMat=new THREE.PointsMaterial({color:0x6688ff,size:0.022,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false});
+const eParts=new THREE.Points(pGeo,pMat);
+eParts.position.set(0,0.1,0.3);scene.add(eParts);
+
+// ────────────────────────────────── BAG MATERIALS
+const fabMat   =new THREE.MeshStandardMaterial({color:0x161828,roughness:0.87,metalness:0.04,side:THREE.DoubleSide});
+const fabDark  =new THREE.MeshStandardMaterial({color:0x0c0e1a,roughness:0.93,metalness:0.0,side:THREE.DoubleSide});
+const seamMat  =new THREE.MeshStandardMaterial({color:0x1e2038,roughness:0.84,metalness:0.05});
+const handleMat=new THREE.MeshStandardMaterial({color:0x26283e,roughness:0.65,metalness:0.18});
+const metalMat =new THREE.MeshStandardMaterial({color:0xbcaa55,roughness:0.22,metalness:0.96});
+const trackMat =new THREE.MeshStandardMaterial({color:0x6e6e82,roughness:0.35,metalness:0.9});
+const intMat   =new THREE.MeshStandardMaterial({color:0x040608,roughness:1,metalness:0,emissive:new THREE.Color(0x080620),emissiveIntensity:0,side:THREE.DoubleSide});
+
+// ────────────────────────────────── BAG BODY
+const bagGroup=new THREE.Group();scene.add(bagGroup);
+
+const bodyGeo=new THREE.BoxGeometry(2.4,1.6,1.2,4,4,4);
+(()=>{const p=bodyGeo.attributes.position;for(let i=0;i<p.count;i++){const x=p.getX(i),y=p.getY(i);p.setX(i,x*(1-0.07*(x/1.2)**2));p.setY(i,y*(1-0.07*(y/0.8)**2));}bodyGeo.computeVertexNormals();})();
+const body=new THREE.Mesh(bodyGeo,fabMat);body.castShadow=true;body.receiveShadow=true;bagGroup.add(body);
+
+// Side seam panels
+[-1.18,1.18].forEach(x=>{const m=new THREE.Mesh(new THREE.BoxGeometry(0.06,1.55,1.18),seamMat);m.position.set(x,0,0);bagGroup.add(m);});
+
+// Bottom
+const botMesh=new THREE.Mesh(new THREE.BoxGeometry(2.38,0.06,1.18),fabDark);botMesh.position.set(0,-0.8,0);bagGroup.add(botMesh);
+
+// Stitching lines on front
+for(let i=-1;i<=1;i+=2){
+  const sg=new THREE.Mesh(new THREE.BoxGeometry(0.008,1.22,0.005),new THREE.MeshStandardMaterial({color:0x30366a,roughness:1}));
+  sg.position.set(i*0.62,0,0.605);bagGroup.add(sg);
+}
+// Horizontal stitch
+const hsg=new THREE.Mesh(new THREE.BoxGeometry(1.3,0.008,0.005),new THREE.MeshStandardMaterial({color:0x30366a,roughness:1}));
+hsg.position.set(0,-0.2,0.606);bagGroup.add(hsg);
+
+// Handle
+const hCurve=new THREE.QuadraticBezierCurve3(new THREE.Vector3(-0.38,0.8,0),new THREE.Vector3(0,1.35,0),new THREE.Vector3(0.38,0.8,0));
+bagGroup.add(new THREE.Mesh(new THREE.TubeGeometry(hCurve,20,0.04,8,false),handleMat));
+
+// Handle base cylinders
+[-0.38,0.38].forEach(x=>{
+  const hb=new THREE.Mesh(new THREE.CylinderGeometry(0.045,0.045,0.05,8),metalMat);
+  hb.position.set(x,0.78,0);hb.rotation.x=Math.PI/2;bagGroup.add(hb);
+});
+
+// Interior glow plane
+const interior=new THREE.Mesh(new THREE.PlaneGeometry(2.0,0.9),intMat);
+interior.position.set(0,0.6,0.06);interior.rotation.x=-Math.PI/2;bagGroup.add(interior);
+
+// Top flap
+const flapMesh=new THREE.Mesh(new THREE.PlaneGeometry(2.22,0.58,14,6),new THREE.MeshStandardMaterial({color:0x161828,roughness:0.87,metalness:0.04,side:THREE.DoubleSide}));
+flapMesh.position.set(0,0.82,0.1);bagGroup.add(flapMesh);
+
+// ────────────────────────────────── ZIPPER
+const zipGroup=new THREE.Group();bagGroup.add(zipGroup);
+
+// Track
+const zTrack=new THREE.Mesh(new THREE.BoxGeometry(2.28,0.044,0.068),trackMat);zTrack.position.set(0,0.826,0.1);zipGroup.add(zTrack);
+
+// Teeth
+const TEETH=38;
+const teethArr=[];
+const toothGeo=new THREE.BoxGeometry(0.046,0.056,0.036);
+for(let i=0;i<TEETH;i++){
+  const m=new THREE.Mesh(toothGeo,metalMat.clone());
+  const tx=-1.09+(i/(TEETH-1))*2.18;
+  m.position.set(tx,0.835,0.13);
+  m.userData.norm=i/(TEETH-1);
+  teethArr.push(m);zipGroup.add(m);
+}
+
+// Slider
+function buildSlider(){
+  const g=new THREE.Group();
+  g.add(new THREE.Mesh(new THREE.BoxGeometry(0.2,0.13,0.1),metalMat)); // body
+  const beak=new THREE.Mesh(new THREE.BoxGeometry(0.1,0.07,0.11),metalMat);
+  beak.position.set(0,-0.052,0.03);g.add(beak);
+  // chain ring
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(0.03,0.009,6,14),metalMat);
+  ring.position.set(0,-0.1,0);ring.rotation.x=Math.PI/2;g.add(ring);
+  // pull tab
+  const tc=new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0,-0.08,0),new THREE.Vector3(0.022,-0.19,0),
+    new THREE.Vector3(0.01,-0.29,0),new THREE.Vector3(0,-0.36,0)
+  ]);
+  g.add(new THREE.Mesh(new THREE.TubeGeometry(tc,10,0.013,6,false),metalMat));
+  const tip=new THREE.Mesh(new THREE.CylinderGeometry(0.024,0.02,0.012,8),metalMat);
+  tip.position.set(0,-0.368,0);g.add(tip);
+  return g;
+}
+const slider=buildSlider();
+slider.position.set(-1.09,0.835,0.13);
+zipGroup.add(slider);
+
+// ────────────────────────────────── PETAL BUILDER
+// Creates a single realistic rose petal as a parametric surface
+function buildPetalGeo(opts){
+  const {len=0.5, wid=0.25, curl=0.1, twist=0.02, curve=0.25, waveAmp=0.03, ribStr=0.025, segs=28, rSegs=18}=opts;
+  const verts=[],uvs=[],idx=[];
+  for(let i=0;i<=segs;i++){
+    const v=i/segs;
+    // Width profile: zero at base, max around 40%, tapers to point
+    const halfW=wid*Math.sin(v*Math.PI)*Math.pow(1-v*0.25,0.5);
+    for(let j=0;j<=rSegs;j++){
+      const u=j/rSegs, uc=u*2-1;
+      let px=uc*halfW;
+      let py=v*len;
+      // Longitudinal cup (petal curves toward viewer)
+      let pz=curve*v*v*(1.2-v*0.5);
+      // Lateral curl — edges roll inward near base, outward near tip
+      const lateralCurl=curl*(1-v)*uc*uc*(uc>0?1:-1);
+      pz+=lateralCurl;
+      // Gentle sinusoidal edge ripple for realism
+      pz+=waveAmp*Math.sin(uc*Math.PI*2.5)*Math.sin(v*Math.PI*0.9);
+      // Mid-rib ridge (raised centerline)
+      const ribFade=Math.sin(v*Math.PI)*0.85;
+      const ribProfile=Math.exp(-uc*uc*18)*ribStr*ribFade;
+      pz+=ribProfile;
+      // Twist along petal length
+      const ang=twist*v;
+      const ca=Math.cos(ang),sa=Math.sin(ang);
+      const rx=px*ca-pz*sa, rz=px*sa+pz*ca;
+      verts.push(rx,py,rz); uvs.push(u,v);
+    }
+  }
+  for(let i=0;i<segs;i++) for(let j=0;j<rSegs;j++){
+    const a=i*(rSegs+1)+j,b=a+rSegs+1;
+    idx.push(a,b,a+1,b,b+1,a+1);
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
+  g.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));
+  g.setIndex(idx);g.computeVertexNormals();
+  return g;
+}
+
+function buildLeafGeo(){
+  const segs=22,rSegs=16,verts=[],uvs=[],idx=[];
+  for(let i=0;i<=segs;i++){
+    const v=i/segs;
+    const hw=0.24*Math.sin(v*Math.PI)*0.75*(1-v*0.1);
+    for(let j=0;j<=rSegs;j++){
+      const u=j/rSegs,uc=u*2-1;
+      let x=uc*hw, y=v*0.6;
+      let z=0.1*v*(1-v)*2.2;
+      z-=0.07*uc*uc*v;
+      z+=0.018*Math.sin(uc*Math.PI*4.5)*v*(1-v);
+      // midrib
+      z+=Math.exp(-uc*uc*20)*0.015*Math.sin(v*Math.PI);
+      verts.push(x,y,z);uvs.push(u,v);
+    }
+  }
+  for(let i=0;i<segs;i++) for(let j=0;j<rSegs;j++){
+    const a=i*(rSegs+1)+j,b=a+rSegs+1;
+    idx.push(a,b,a+1,b,b+1,a+1);
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
+  g.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));
+  g.setIndex(idx);g.computeVertexNormals();
+  return g;
+}
+
+function buildSepalGeo(){
+  return buildPetalGeo({len:0.52,wid:0.13,curl:-0.08,twist:0.04,curve:0.15,waveAmp:0.01,ribStr:0.018,segs:18,rSegs:12});
+}
+
+// ────────────────────────────────── BLUE ROSE CONSTRUCTION
+const roseGroup=new THREE.Group();
+roseGroup.position.set(0,-0.25,0.2);
+scene.add(roseGroup);
+
+function buildBlueRose(){
+  const root=new THREE.Group();
+
+  // ── STEM ──
+  const stemCurve=new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0,0,0),
+    new THREE.Vector3(0.05,0.32,-0.02),
+    new THREE.Vector3(-0.04,0.68,0.04),
+    new THREE.Vector3(0.03,1.05,0.01),
+    new THREE.Vector3(0,1.46,0),
+  ]);
+  const stemGeo=new THREE.TubeGeometry(stemCurve,48,0.036,10,false);
+  const stemMat=new THREE.MeshStandardMaterial({color:0x1a3a16,roughness:0.74,metalness:0.06});
+  root.add(new THREE.Mesh(stemGeo,stemMat));
+
+  // Stem surface detail — backside dark outline
+  const stemOut=new THREE.Mesh(new THREE.TubeGeometry(stemCurve,48,0.042,10,false),
+    new THREE.MeshStandardMaterial({color:0x0d1e0c,roughness:1,metalness:0,side:THREE.BackSide}));
+  root.add(stemOut);
+
+  // ── THORNS ──
+  const thornMat=new THREE.MeshStandardMaterial({color:0x291510,roughness:0.55,metalness:0.25});
+  function addThorn(t,sideX,rotY){
+    const p=stemCurve.getPoint(t);
+    const tg=new THREE.Group();
+    tg.position.copy(p);tg.rotation.y=rotY;
+    const tc=new THREE.Mesh(new THREE.ConeGeometry(0.02,0.13,7),thornMat);
+    tc.rotation.z=sideX*(Math.PI/2+0.35);tc.position.set(sideX*0.04,0,0);
+    tg.add(tc);root.add(tg);
+  }
+  addThorn(0.15,1,0.3); addThorn(0.25,-1,-0.4); addThorn(0.38,1,1.1);
+  addThorn(0.50,-1,2.0); addThorn(0.62,1,-0.9); addThorn(0.72,-1,1.6);
+
+  // ── LEAVES ──
+  const leafMat=new THREE.MeshStandardMaterial({color:0x1a3e18,roughness:0.72,metalness:0.04,side:THREE.DoubleSide});
+  const leafUnder=new THREE.MeshStandardMaterial({color:0x0e2810,roughness:0.85,metalness:0,side:THREE.BackSide});
+  const leafRib=new THREE.MeshStandardMaterial({color:0x2a5828,roughness:0.6,metalness:0.05});
+
+  function addLeaf(t,sideX,ry,rz){
+    const p=stemCurve.getPoint(t);
+    const lg=new THREE.Group();
+    lg.position.copy(p);lg.rotation.y=ry;lg.rotation.z=rz;
+    const lGeo=buildLeafGeo();
+    lg.add(new THREE.Mesh(lGeo,leafMat));
+    lg.add(new THREE.Mesh(lGeo,leafUnder));
+    // Midrib
+    const rc=new THREE.LineCurve3(new THREE.Vector3(0,0,0.01),new THREE.Vector3(0,0.6,0.01));
+    lg.add(new THREE.Mesh(new THREE.TubeGeometry(rc,8,0.005,4,false),leafRib));
+    // Secondary veins (simple lines)
+    for(let v=0;v<4;v++){
+      const vt=0.2+v*0.15;
+      const vc=new THREE.LineCurve3(new THREE.Vector3(0,vt*0.6,0.01),new THREE.Vector3(sideX*0.1,vt*0.6+0.04,0.01));
+      lg.add(new THREE.Mesh(new THREE.TubeGeometry(vc,3,0.003,4,false),leafRib));
+      const vc2=new THREE.LineCurve3(new THREE.Vector3(0,vt*0.6,0.01),new THREE.Vector3(-sideX*0.1,vt*0.6+0.04,0.01));
+      lg.add(new THREE.Mesh(new THREE.TubeGeometry(vc2,3,0.003,4,false),leafRib));
+    }
+    // Small companion leaflet
+    const sl=new THREE.Mesh(buildLeafGeo(),leafMat);
+    sl.scale.set(0.55,0.55,0.55);sl.position.set(sideX*0.2,0,0.02);sl.rotation.z=sideX*0.6;
+    lg.add(sl);
+    root.add(lg);
+  }
+  addLeaf(0.30, 1, 0.5,-0.45);
+  addLeaf(0.45,-1,-0.7, 0.48);
+  addLeaf(0.60, 1, 1.3,-0.35);
+
+  // ── SEPALS ──
+  const sepalMat=new THREE.MeshStandardMaterial({color:0x1e4018,roughness:0.7,metalness:0.03,side:THREE.DoubleSide});
+  const stemTip=stemCurve.getPoint(1);
+  for(let s=0;s<5;s++){
+    const ang=(s/5)*Math.PI*2;
+    const sg=new THREE.Group();
+    sg.position.copy(stemTip);sg.rotation.y=ang;
+    const sepal=new THREE.Mesh(buildSepalGeo(),sepalMat);
+    sepal.rotation.x=0.45;
+    sg.add(sepal);root.add(sg);
+  }
+
+  // ── PETALS — 10 LAYERS ──────────────────────────────────────────────────
+  // Blue spectrum: deepest midnight inner → cobalt → pale ice outer
+  const blueSpectrum=[
+    {hex:0x06091e, rough:0.4, emit:0x050818, eStr:0.2},  // 0 innermost
+    {hex:0x080e30, rough:0.38,emit:0x060a20, eStr:0.18},  // 1
+    {hex:0x0c1448, rough:0.36,emit:0x070c28, eStr:0.14},  // 2
+    {hex:0x101a60, rough:0.34,emit:0x080e30, eStr:0.10},  // 3
+    {hex:0x152278, rough:0.33,emit:0x091038, eStr:0.06},  // 4
+    {hex:0x1c2e90, rough:0.32,emit:0x0a1240, eStr:0.04},  // 5
+    {hex:0x2438a8, rough:0.31,emit:0x0c1448, eStr:0.02},  // 6
+    {hex:0x2e44b8, rough:0.30,emit:0,        eStr:0},     // 7
+    {hex:0x3a54c8, rough:0.30,emit:0,        eStr:0},     // 8
+    {hex:0x4868d8, rough:0.29,emit:0,        eStr:0},     // 9 outermost
+  ];
+
+  function petalMat(spec){
+    return new THREE.MeshStandardMaterial({
+      color:spec.hex, roughness:spec.rough, metalness:0.1,
+      emissive:spec.emit?new THREE.Color(spec.emit):new THREE.Color(0),
+      emissiveIntensity:spec.eStr,
+      side:THREE.DoubleSide, transparent:true, opacity:0.97
+    });
+  }
+
+  // Layer config: [petalCount, length, width, curl, twist, curve, waveAmp, ribStr, baseRadius, heightOff, openAngle, colorIdx]
+  const layers=[
+    [3, 0.28,0.11, 0.40,0.10, 0.32,0.02,0.03, 0.025,0.00, 0.04, 0], // tight furled core
+    [4, 0.34,0.14, 0.35,0.08, 0.34,0.025,0.03,0.05, 0.02, 0.12, 0],
+    [5, 0.42,0.18, 0.30,0.06, 0.36,0.028,0.03,0.09, 0.03, 0.22, 1],
+    [5, 0.50,0.22, 0.26,0.05, 0.34,0.03, 0.028,0.13,0.03, 0.32, 2],
+    [6, 0.58,0.26, 0.20,0.04, 0.30,0.032,0.026,0.18,0.02, 0.42, 3],
+    [6, 0.65,0.30, 0.16,0.03, 0.26,0.033,0.024,0.23,0.01, 0.52, 4],
+    [7, 0.72,0.34, 0.12,0.02, 0.22,0.034,0.022,0.29,0.00, 0.61, 5],
+    [8, 0.78,0.38, 0.07,0.01, 0.17,0.035,0.020,0.35,-0.02,0.70, 6],
+    [9, 0.82,0.43, 0.02,0.00, 0.12,0.036,0.018,0.43,-0.04,0.78, 7],
+    [10,0.78,0.48,-0.04,0.00, 0.07,0.037,0.016,0.52,-0.07,0.85, 8],
+    [8, 0.70,0.52,-0.09,0.00, 0.03,0.04, 0.014,0.60,-0.10,0.91, 9], // guard petals
+  ];
+
+  layers.forEach(([cnt,pl,pw,cu,tw,cv,wa,rb,br,ho,oa,ci],li)=>{
+    const mat=petalMat(blueSpectrum[Math.min(ci,9)]);
+    for(let i=0;i<cnt;i++){
+      const ang=(i/cnt)*Math.PI*2 + li*0.22; // Fibonacci-like spiral offset
+      const gOpts={len:pl,wid:pw,curl:cu,twist:tw,curve:cv,waveAmp:wa,ribStr:rb,segs:24,rSegs:16};
+      const pg=buildPetalGeo(gOpts);
+      const pm=new THREE.Mesh(pg,mat.clone());
+      pm.castShadow=true; pm.receiveShadow=true;
+
+      const pg2=new THREE.Group();
+      pg2.rotation.x=oa;
+      pg2.position.set(
+        br*Math.sin(ang),
+        stemTip.y+ho,
+        br*Math.cos(ang)
+      );
+      // Slight random variation — organic imperfection
+      pm.rotation.z=(Math.random()-0.5)*0.06;
+      pm.rotation.y=(Math.random()-0.5)*0.04;
+      pg2.add(pm); pg2.rotation.y=-ang;
+      root.add(pg2);
+    }
+  });
+
+  // ── STAMEN DETAILS ──
+  // Inner bud sphere
+  const bud=new THREE.Mesh(
+    new THREE.SphereGeometry(0.055,14,14),
+    new THREE.MeshStandardMaterial({color:0x05081a,roughness:0.35,metalness:0.12,emissive:0x040615,emissiveIntensity:0.35})
+  );
+  bud.position.copy(stemTip);bud.position.y+=0.02;root.add(bud);
+
+  // Stamens — filaments + anthers
+  for(let i=0;i<22;i++){
+    const ang=(i/22)*Math.PI*2;
+    const r=0.038+Math.random()*0.022;
+    const h=0.045+Math.random()*0.07;
+    const jitter=0.01;
+    const fc=new THREE.LineCurve3(
+      new THREE.Vector3(r*Math.sin(ang),stemTip.y,r*Math.cos(ang)),
+      new THREE.Vector3((r+jitter*(Math.random()-0.5))*Math.sin(ang)*0.85,stemTip.y+h,(r+jitter*(Math.random()-0.5))*Math.cos(ang)*0.85)
+    );
+    root.add(new THREE.Mesh(new THREE.TubeGeometry(fc,4,0.0038,4,false),
+      new THREE.MeshStandardMaterial({color:0xcab040,roughness:0.5,metalness:0.25})));
+    // Anther (pollen head)
+    const an=new THREE.Mesh(new THREE.SphereGeometry(0.0095,6,6),
+      new THREE.MeshStandardMaterial({color:0xffe055,emissive:new THREE.Color(0x907010),emissiveIntensity:0.4,roughness:0.38,metalness:0.18}));
+    an.position.set((r+jitter)*Math.sin(ang)*0.85,stemTip.y+h+0.01,(r+jitter)*Math.cos(ang)*0.85);
+    root.add(an);
+  }
+
+  // Pistil (central female organ)
+  const pistilC=new THREE.LineCurve3(new THREE.Vector3(0,stemTip.y-0.01,0),new THREE.Vector3(0.004,stemTip.y+0.08,0));
+  root.add(new THREE.Mesh(new THREE.TubeGeometry(pistilC,6,0.007,6,false),
+    new THREE.MeshStandardMaterial({color:0x70a040,roughness:0.5,metalness:0.05})));
+  const stigma=new THREE.Mesh(new THREE.SphereGeometry(0.016,8,8),
+    new THREE.MeshStandardMaterial({color:0x90c050,emissive:new THREE.Color(0x306010),emissiveIntensity:0.2,roughness:0.4}));
+  stigma.position.set(0.004,stemTip.y+0.1,0);root.add(stigma);
+
+  // ── WATER DROPLETS ──
+  const dropMat=new THREE.MeshStandardMaterial({
+    color:0xaaddff,roughness:0.0,metalness:0.0,
+    transparent:true,opacity:0.62,envMapIntensity:2
+  });
+  const dropData=[
+    [0.30,stemTip.y+0.06, 0.34], [-0.28,stemTip.y+0.09,0.26],
+    [0.18,stemTip.y+0.02,-0.40], [-0.20,stemTip.y+0.07,-0.32],
+    [0.42,stemTip.y+0.04, 0.14], [ 0.12,stemTip.y+0.11, 0.48],
+    [-0.38,stemTip.y+0.03,-0.15],[ 0.25,stemTip.y+0.05,-0.22],
+  ];
+  dropData.forEach(([x,y,z])=>{
+    const size=0.008+Math.random()*0.01;
+    const d=new THREE.Mesh(new THREE.SphereGeometry(size,8,8),dropMat.clone());
+    d.position.set(x,y,z);root.add(d);
+  });
+
+  // ── POLLEN DUST ── tiny floating specks near center
+  const pollenBuf=new Float32Array(60*3);
+  for(let i=0;i<60;i++){
+    const a=Math.random()*Math.PI*2,r=0.05+Math.random()*0.12;
+    pollenBuf[i*3]=r*Math.sin(a);
+    pollenBuf[i*3+1]=stemTip.y+0.03+Math.random()*0.15;
+    pollenBuf[i*3+2]=r*Math.cos(a);
+  }
+  const pollenGeo=new THREE.BufferGeometry();
+  pollenGeo.setAttribute('position',new THREE.BufferAttribute(pollenBuf,3));
+  root.add(new THREE.Points(pollenGeo,new THREE.PointsMaterial({
+    color:0xffee80,size:0.008,transparent:true,opacity:0.55,blending:THREE.AdditiveBlending,depthWrite:false
+  })));
+
+  return root;
+}
+
+const blueRose=buildBlueRose();
+blueRose.scale.set(0,0,0);
+roseGroup.add(blueRose);
+
+// ────────────────────────────────── STATE
+let zipProg=0,isDrag=false,dragX0=0,dragP0=0;
+let revealed=false,revealT=0;
+let phase='zip';
+let rotY=0,rotX=0,tRotY=0,tRotX=0,tScale=1,curScale=1;
+let pinchBase=1,pinchD0=0;
+let prevZip=0;
+const clock=new THREE.Clock();
+
+// ── Audio
+let actx=null,lastTick=0;
+function ensureAudio(){if(!actx)actx=new(window.AudioContext||window.webkitAudioContext)();}
+function playTick(){
+  if(!actx)return;const now=actx.currentTime;
+  if(now-lastTick<0.033)return;lastTick=now;
+  const o=actx.createOscillator(),g=actx.createGain();
+  o.connect(g);g.connect(actx.destination);
+  o.frequency.setValueAtTime(700+Math.random()*600,now);
+  o.frequency.exponentialRampToValueAtTime(180,now+0.04);
+  g.gain.setValueAtTime(0.07,now);g.gain.exponentialRampToValueAtTime(0.001,now+0.04);
+  o.start(now);o.stop(now+0.05);
+}
+function playBloom(){
+  if(!actx)return;const now=actx.currentTime;
+  [160,240,320,420,560,720].forEach((f,i)=>{
+    const o=actx.createOscillator(),g=actx.createGain();
+    o.type='sine';o.connect(g);g.connect(actx.destination);
+    o.frequency.setValueAtTime(f,now+i*0.1);
+    o.frequency.exponentialRampToValueAtTime(f*1.6,now+i*0.1+0.9);
+    g.gain.setValueAtTime(0,now+i*0.1);
+    g.gain.linearRampToValueAtTime(0.1,now+i*0.1+0.12);
+    g.gain.exponentialRampToValueAtTime(0.001,now+i*0.1+2.2);
+    o.start(now+i*0.1);o.stop(now+i*0.1+2.3);
+  });
+}
+
+// ── Input
+let lastPX=0,lastPY=0;
+canvas.addEventListener('pointerdown',e=>{
+  e.preventDefault();ensureAudio();
+  isDrag=true;dragX0=e.clientX;dragP0=phase==='zip'?zipProg:tRotY;
+  lastPX=e.clientX;lastPY=e.clientY;
+},{passive:false});
+canvas.addEventListener('pointermove',e=>{
+  e.preventDefault();if(!isDrag)return;
+  if(phase==='zip'){
+    let dp=(e.clientX-dragX0)/(window.innerWidth*0.52);
+    let np=dragP0+dp;
+    if(np>0.73&&np<0.97){const s=(np-0.73)/0.24;dp*=(0.4+0.6*(1-s));}
+    zipProg=Math.max(0,Math.min(1,dragP0+(e.clientX-dragX0)/(window.innerWidth*0.52)));
+    // Resistance impl (override)
+    let raw=(e.clientX-dragX0)/(window.innerWidth*0.52);
+    if(dragP0+raw>0.73&&dragP0+raw<0.97){
+      const excess=dragP0+raw-0.73;raw=0.73-dragP0+excess*0.38;
+    }
+    zipProg=Math.max(0,Math.min(1,dragP0+raw));
+  }else{
+    tRotY+=(e.clientX-lastPX)*0.009;
+    tRotX+=(e.clientY-lastPY)*0.006;
+    tRotX=Math.max(-0.75,Math.min(0.75,tRotX));
+  }
+  lastPX=e.clientX;lastPY=e.clientY;
+},{passive:false});
+canvas.addEventListener('pointerup',()=>isDrag=false);
+canvas.addEventListener('pointercancel',()=>isDrag=false);
+
+canvas.addEventListener('touchstart',e=>{
+  if(e.touches.length===2){
+    const t0=e.touches[0],t1=e.touches[1];
+    pinchD0=Math.hypot(t1.clientX-t0.clientX,t1.clientY-t0.clientY);
+    pinchBase=tScale;
+  }
+},{passive:true});
+canvas.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  if(e.touches.length===2&&phase==='rose'){
+    const t0=e.touches[0],t1=e.touches[1];
+    const d=Math.hypot(t1.clientX-t0.clientX,t1.clientY-t0.clientY);
+    tScale=Math.max(0.35,Math.min(3.0,pinchBase*(d/pinchD0)));
+  }
+},{passive:false});
+
+// ── Easing helpers
+function eOut3(t){return 1-(1-t)**3;}
+function eOutElastic(t){
+  if(t===0||t===1)return t;
+  return Math.pow(2,-10*t)*Math.sin((t*10-0.75)*(2*Math.PI)/3)+1;
+}
+function lerp(a,b,t){return a+(b-a)*t;}
+
+// ── Bag slide-down after reveal
+let bagSliding=false,bagSlideStart=0,bagSlideFrom=0;
+
+// ────────────────────────────────── RENDER LOOP
+function animate(){
+  requestAnimationFrame(animate);
+  const T=clock.getElapsedTime();
+
+  // Bag breathing idle
+  if(phase==='zip'){
+    bagGroup.scale.setScalar(1+Math.sin(T*0.82)*0.007);
+    bagGroup.rotation.z=Math.sin(T*0.48)*0.003;
+  }
+
+  // Zipper audio
+  if(isDrag&&phase==='zip'&&Math.abs(zipProg-prevZip)>0.007) playTick();
+  prevZip=zipProg;
+
+  // Slider tracks progress
+  slider.position.x=-1.09+zipProg*2.18;
+
+  // Teeth separate as zipper passes them
+  teethArr.forEach(tooth=>{
+    const n=tooth.userData.norm;
+    if(n<=zipProg){
+      const open=Math.min(1,(zipProg-n)/(1.2/TEETH+0.08));
+      tooth.position.z=0.13+open*0.075;
+      tooth.scale.x=1+open*0.35;
+    }else{tooth.position.z=0.13;tooth.scale.x=1;}
+  });
+
+  // Flap opens
+  if(zipProg>0.04){
+    flapMesh.rotation.x=-zipProg*0.98;
+    flapMesh.position.y=0.82+zipProg*0.38;
+  }
+
+  // Interior glow
+  const gp=Math.max(0,(zipProg-0.22)*1.4);
+  glowLight.intensity=gp*3.8;
+  intMat.emissiveIntensity=gp*0.5;
+  pMat.opacity=Math.min(0.78,gp*0.68);
+
+  // Anticipation pulse at ~78%
+  if(zipProg>0.75&&zipProg<0.97&&!revealed){
+    glowLight.intensity=4.5+Math.sin(T*14)*2;
+    pMat.opacity=0.6+Math.sin(T*10)*0.15;
+  }
+
+  // Escape particles
+  if(zipProg>0.28){
+    const pa=pGeo.attributes.position;
+    const intensity=Math.min(1,(zipProg-0.28)/0.72);
+    for(let i=0;i<PCNT;i++){
+      pLife[i]-=0.008*intensity;
+      if(pLife[i]<=0){
+        pa.setX(i,(Math.random()-0.5)*0.38);pa.setY(i,0);pa.setZ(i,(Math.random()-0.5)*0.14);
+        pVel[i].x=(Math.random()-0.5)*0.02;pVel[i].y=Math.random()*0.03+0.01;pVel[i].z=(Math.random()-0.5)*0.013;
+        pLife[i]=1;
+      }
+      pa.setX(i,pa.getX(i)+pVel[i].x);
+      pa.setY(i,pa.getY(i)+pVel[i].y);
+      pa.setZ(i,pa.getZ(i)+pVel[i].z);
+    }
+    pa.needsUpdate=true;
+  }
+
+  // ── REVEAL
+  if(zipProg>=0.98&&!revealed){
+    revealed=true;revealT=T;phase='rose';
+    playBloom();
+    setTimeout(()=>{bagSliding=true;bagSlideStart=Date.now();bagSlideFrom=bagGroup.position.y;},500);
+  }
+
+  // Bag slides down
+  if(bagSliding){
+    const bp=Math.min(1,(Date.now()-bagSlideStart)/1100);
+    bagGroup.position.y=bagSlideFrom-eOut3(bp)*2.4;
+    if(bp>=1)bagSliding=false;
+  }
+
+  // ── ROSE animate
+  if(revealed){
+    const el=T-revealT;
+    // Rise
+    const rise=Math.min(1,el*0.6);
+    roseGroup.position.y=-0.25+eOut3(rise)*0.45;
+
+    // Scale in
+    const sp=Math.min(1,el*1.0);
+    const es=eOutElastic(sp)*curScale;
+    blueRose.scale.set(es,es,es);
+
+    // Orbit damping
+    rotY=lerp(rotY,tRotY,0.07);
+    rotX=lerp(rotX,tRotX,0.07);
+    curScale=lerp(curScale,tScale,0.1);
+    roseGroup.rotation.y=rotY;
+    roseGroup.rotation.x=rotX;
+
+    // Very gentle auto-drift when not dragging
+    if(!isDrag){tRotY+=0.0007;}
+
+    // Lights bloom
+    roseLight.intensity=eOut3(Math.min(1,el*0.55))*3.8*(1+Math.sin(T*0.65)*0.07);
+    underLight.intensity=eOut3(Math.min(1,el*0.45))*2.2;
+    sideLight.intensity=eOut3(Math.min(1,el*0.5))*2.5*(1+Math.sin(T*0.9+1)*0.06);
+    glowLight.intensity=Math.max(0,glowLight.intensity-0.05);
+  }
+
+  renderer.render(scene,camera);
+}
+
+window.addEventListener('resize',()=>{
+  camera.aspect=window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth,window.innerHeight);
+});
+
+animate();
+</script>
+</body>
+</html>
